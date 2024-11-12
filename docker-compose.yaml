@@ -1,0 +1,105 @@
+# x-logging: &default-logging
+#   driver: loki
+#   options:
+#     loki-url: 'http://localhost:3100/api/prom/push'
+#     loki-pipeline-stages: |
+#       - multiline:
+#           firstline: '^\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}:\d{2}'
+#           max_wait_time: 3s
+#       - regex:
+#           expression: '^(?P<time>\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}:\d{2},d{3}) (?P<message>(?s:.*))$$'
+
+
+version: '3.8'
+services:
+  # loki:
+  #   image: grafana/loki:2.9.3
+  #   container_name: loki
+  #   command: -config.file=/etc/loki/local-config.yaml
+  #   ports:
+  #     - "3100:3100"
+
+  postgres:
+    image: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - ./backend/.env
+    ports:
+      - 5432:5432
+    networks:
+      - main
+
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile.dev
+  #   volumes:
+  #     - './frontend:/app'
+  #     - './frontend/node_modules:/app/node_modules'
+  #   ports:
+  #     - '3001:3001'
+
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile.prod
+  #   ports:
+  #     - '1337:80'
+  #   networks:
+  #     - main
+
+  backend: &backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/home/app/backend
+    ports:
+      - 8000:8000
+    # logging: *default-logging 
+    healthcheck:
+      test: curl --fail http://localhost:8000/health || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3 
+    networks:
+      - main  
+    
+  redis:
+    image: redis
+    volumes:
+      - redis-data:/data
+    ports:
+      - 6379:6379
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    networks:
+      - main
+
+  celery_worker:
+    <<: *backend
+    container_name: celery_worker
+    command: celery -A app.celery_app worker -l info -Q default
+    privileged: true
+    ports:
+      []
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./backend:/home/app/backend
+    env_file:
+      - ./backend/.env
+    networks:
+      - main
+
+volumes:
+  postgres_data:
+  redis-data:
+
+networks:
+  main:
+    name: main_network
+    driver: bridge
