@@ -1,90 +1,77 @@
 ###########
 # BUILDER #
 ###########
+FROM python:3.9-slim as builder
 
-# pull official base image
-FROM python:3.9.6-alpine as builder
+# Устанавливаем системные пакеты, необходимые для компиляции зависимостей
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    libmagic-dev \
+    file \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# set work directory
+# Создаём рабочую директорию
 WORKDIR /usr/src/app
 
-# set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# install psycopg2 dependencies
-RUN apk update \
-    && apk add postgresql-dev gcc python3-dev musl-dev file libmagic
-
-# lint
+# Обновляем pip
 RUN pip install --upgrade pip
-# COPY . .
 
-# install dependencies
-COPY ./requirements.txt .
+# Копируем список зависимостей
+COPY requirements.txt .
+
+# Собираем колёса (wheel) всех зависимостей в папку wheels
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements.txt
 
 
 #########
 # FINAL #
 #########
+FROM python:3.9-slim
 
-# pull official base image
-FROM python:3.9.6-alpine
+# Для корректной работы tzdata (установка часового пояса)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata \
+    libpq-dev \
+    libmagic-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# install tzdata
-RUN apk update && apk add --no-cache tzdata curl
-
-# set timezone
+# Устанавливаем часовой пояс
 ENV TZ=Europe/Moscow
-RUN cp /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-# create directory for the app user
+# Создаём директорию для приложения и пользователя
 RUN mkdir -p /home/app
+RUN addgroup --system app && adduser --system --ingroup app app
 
-# create the app user
-RUN addgroup -S app && adduser -S app -G app
+# Настройки Python
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-# create the appropriate directories
+# Создаём рабочую директорию приложения
 ENV HOME=/home/app
 ENV APP_HOME=/home/app/backend
 RUN mkdir $APP_HOME
 WORKDIR $APP_HOME
 
-# install dependencies
-RUN apk update && apk add libpq
-
-# Устанавливаем Docker CLI
-RUN apk add --no-cache docker-cli file libmagic
-ARG DOCKER_GID=1001
-
-# Создаем группу docker в контейнере с тем же GID
-RUN addgroup -g ${DOCKER_GID} docker && adduser app docker
-
+# Копируем собранные колёса из builder-этапа и устанавливаем их
 COPY --from=builder /usr/src/app/wheels /wheels
 COPY --from=builder /usr/src/app/requirements.txt .
-RUN pip install --no-cache /wheels/*
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir /wheels/*
 
-COPY entrypoint.sh .
-RUN sed -i 's/\r$//g'  $APP_HOME/entrypoint.sh
-RUN chmod +x  $APP_HOME/entrypoint.sh
-
-# copy project
+# Копируем исходный код приложения
 COPY . $APP_HOME
 
-# chown all the files to the app user
+# Делаем владельцем папки пользователя app
 RUN chown -R app:app $APP_HOME
-RUN pip install --editable .
 
-# change to the app user
+# Переходим под пользователя app
 USER root
+
 EXPOSE 8000
 
-# CMD python app/main.py
-# CMD [ "uvicorn app.main:app" ]
-# ENTRYPOINT ["./entrypoint.sh"]
-# ENTRYPOINT ["./entrypoint.prod.sh"]
-RUN sed -i 's/%(asctime)s %(levelname)s [%(name)s] [%(filename)s:%(lineno)d] [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s resource.service.name=%(otelServiceName)s] - %(message)s/%(asctime)s %(levelname)s [%(name)s] [%(filename)s:%(lineno)d] [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s resource.service.name=%(otelServiceName)s] - %(message)s/g' /usr/local/lib/python3.9/site-packages/uvicorn/config.py
-
-# Запускаем приложение
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Запускаем FastAPI (пример с uvicorn)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

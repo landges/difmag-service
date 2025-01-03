@@ -14,9 +14,16 @@ from app.version import __version__
 from app.core.config import config
 from sqlalchemy.orm import Session
 import uvicorn
+from pgvector.psycopg2 import register_vector
+from sqlalchemy import event
+from app.core.session import sengine
+
+@event.listens_for(sengine, "connect")
+def connect(dbapi_connection, connection_record):
+    register_vector(dbapi_connection, arrays=True)
+
 
 APP_NAME = os.environ.get("APP_NAME", "app")
-
 
 app = FastAPI(
     title=OPEN_API_TITLE,
@@ -24,9 +31,9 @@ app = FastAPI(
     version=__version__,
     swagger_ui_parameters={"defaultModelsExpandDepth": -1},
 )
-if not config.debug:
-    # Filter out /endpoint
-    logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+# if not config.debug:
+#     # Filter out /endpoint
+#     logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
 
 #TODO get from env

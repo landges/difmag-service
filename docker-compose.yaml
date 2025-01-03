@@ -1,32 +1,17 @@
-# x-logging: &default-logging
-#   driver: loki
-#   options:
-#     loki-url: 'http://localhost:3100/api/prom/push'
-#     loki-pipeline-stages: |
-#       - multiline:
-#           firstline: '^\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}:\d{2}'
-#           max_wait_time: 3s
-#       - regex:
-#           expression: '^(?P<time>\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}:\d{2},d{3}) (?P<message>(?s:.*))$$'
-
-
-version: '3.8'
 services:
-  # loki:
-  #   image: grafana/loki:2.9.3
-  #   container_name: loki
-  #   command: -config.file=/etc/loki/local-config.yaml
-  #   ports:
-  #     - "3100:3100"
+
 
   postgres:
-    image: postgres
+    image: pgvector/pgvector:pg15
+    # build:
+    #   context: ./backend/db
+    #   dockerfile: Dockerfile
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     env_file:
       - ./backend/.env
     ports:
-      - 5432:5432
+      - 5434:5432
     networks:
       - main
 
@@ -52,7 +37,7 @@ services:
   backend: &backend
     build:
       context: ./backend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     env_file:
       - ./backend/.env
@@ -69,37 +54,11 @@ services:
     networks:
       - main  
     
-  redis:
-    image: redis
-    volumes:
-      - redis-data:/data
-    ports:
-      - 6379:6379
-    environment:
-      - ALLOW_EMPTY_PASSWORD=yes
-    networks:
-      - main
-
-  celery_worker:
-    <<: *backend
-    container_name: celery_worker
-    command: celery -A app.celery_app worker -l info -Q default
-    privileged: true
-    ports:
-      []
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./backend:/home/app/backend
-    env_file:
-      - ./backend/.env
-    networks:
-      - main
 
 volumes:
   postgres_data:
-  redis-data:
 
 networks:
   main:
-    name: main_network
+    name: images_network
     driver: bridge
