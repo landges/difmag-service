@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 import logging
@@ -12,6 +13,17 @@ class DatabaseConfig(BaseModel):
     """
     # dsn: str = f"postgresql+psycopg2://postgres:postgres@postgres/difimages" #TODO get from env not working
     dsn: str = "postgresql://user:password@host:port/dbname"
+
+
+class S3Config(BaseModel):
+    bucket_name: str = None
+    region_name: str = "us-east-1"
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_session_token: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    default_acl: str = "private"
+    expiration: int = 3600
 
 
 class Config(BaseSettings):
@@ -30,6 +42,9 @@ class Config(BaseSettings):
 
     debug: bool = True
     database: DatabaseConfig = DatabaseConfig()
+    s3_enable: bool = False
+    s3_confif: S3Config = S3Config()
+
 
     class Config:
         env_file = ".env"
