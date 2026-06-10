@@ -1,77 +1,51 @@
-###########
-# BUILDER #
-###########
-FROM python:3.11-slim as builder
+FROM python:3.11-slim AS builder
 
-# Устанавливаем системные пакеты, необходимые для компиляции зависимостей
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    libpq-dev \
-    libmagic-dev \
-    file \
-    build-essential \
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /build
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Создаём рабочую директорию
-WORKDIR /usr/src/app
-
-# Обновляем pip
-RUN pip install --upgrade pip
-
-# Копируем список зависимостей
 COPY requirements.txt .
 
-# Собираем колёса (wheel) всех зависимостей в папку wheels
-RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements.txt
+RUN pip wheel --wheel-dir /wheels -r requirements.txt
 
 
-#########
-# FINAL #
-#########
-FROM python:3.11-slim
+FROM python:3.11-slim AS runtime
 
-# Для корректной работы tzdata (установка часового пояса)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tzdata \
-    libpq-dev \
-    libmagic-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+ENV APP_HOME=/home/app/backend \
+    HOME=/home/app \
+    PATH=/home/app/.local/bin:$PATH \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    TZ=Europe/Moscow
 
-# Устанавливаем часовой пояс
-ENV TZ=Europe/Moscow
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl libpq5 tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system app \
+    && adduser --system --ingroup app --home /home/app app \
+    && mkdir -p "$APP_HOME"
 
-# Создаём директорию для приложения и пользователя
-RUN mkdir -p /home/app
-RUN addgroup --system app && adduser --system --ingroup app app
-
-# Настройки Python
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Создаём рабочую директорию приложения
-ENV HOME=/home/app
-ENV APP_HOME=/home/app/backend
-RUN mkdir $APP_HOME
 WORKDIR $APP_HOME
 
-# Копируем собранные колёса из builder-этапа и устанавливаем их
-COPY --from=builder /usr/src/app/wheels /wheels
-COPY --from=builder /usr/src/app/requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir /wheels/*
+COPY --from=builder /wheels /wheels
+COPY requirements.txt .
 
-# Копируем исходный код приложения
-COPY . $APP_HOME
+RUN pip install --no-index --find-links=/wheels -r requirements.txt \
+    && rm -rf /wheels
 
-# Делаем владельцем папки пользователя app
-RUN chown -R app:app $APP_HOME
+COPY . .
 
-# Переходим под пользователя app
-USER root
+RUN chown -R app:app /home/app
+
+USER app
 
 EXPOSE 8000
 
-# Запускаем FastAPI (пример с uvicorn)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

@@ -12,10 +12,36 @@ class ProfileSchema(BaseModel):
 class ImageSchema(BaseModel):
     id: int
     file_path: str
-    hash: str
+    hash: Optional[str]
 
     class Config:
         from_attributes = True
+
+
+class ImageLoadResponse(BaseModel):
+    status: str
+    image: ImageSchema
+
+
+class SimilarImageSchema(BaseModel):
+    image: ImageSchema
+    similarity: float
+    distance: float
+
+
+class ImageCheckResponse(BaseModel):
+    is_unique: bool
+    max_similarity: float
+    threshold: float
+    created: bool
+    best_match: Optional[SimilarImageSchema] = None
+    image: Optional[ImageSchema] = None
+
+
+class ImageSearchResponse(BaseModel):
+    profile: str
+    total: int
+    matches: List[SimilarImageSchema]
 
 
 class ProfileImagesSchema(BaseModel):

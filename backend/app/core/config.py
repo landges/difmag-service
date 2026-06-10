@@ -41,6 +41,7 @@ class Config(BaseSettings):
     """
 
     debug: bool = True
+    model_path: str = "models/resnet50_embedding.onnx"
     database: DatabaseConfig = DatabaseConfig()
     s3_enable: bool = False
     s3_confif: S3Config = S3Config()
